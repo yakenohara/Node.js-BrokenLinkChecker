@@ -17,7 +17,7 @@ var http = require('http');
 
 // <Tunings>----------------------
 // var int_msTimeForTimeOut = 10000; //todo <- original
-var int_msTimeForTimeOut = 3000;
+var int_msTimeForTimeOut = 10000;
 // ---------------------</Tunings>
 
 (async function(){
@@ -26,6 +26,12 @@ var int_msTimeForTimeOut = 3000;
 
     var str_defaultOutFileName = 'Referencing Report.md';
     var rgx_fileNameToProcess = /.+\.md/;
+    var rgx_fileNameLocalImages = [
+        /.+\.png/,
+        /.+\.jpg/,
+        /.+\.jpeg/,
+        /.+\.svg/
+    ]
     var str_returnChar = '\n';
     var int_msTimeForWatch = 250;
     
@@ -128,10 +134,18 @@ var int_msTimeForTimeOut = 3000;
 
     var str_entriesRecurse = func_readdirSyncRecurse(str_dotFileDirAbs); // ディレクトリ配下のパスリストを再帰的に取得
     var str_filterd = []; // 処理対象リスト
+    var str_imagePaths = []; // 画像 Path リスト
     // 処理対象ファイル数の把握
     for(var int_idxOfFileList = 0 ; int_idxOfFileList < str_entriesRecurse.length ; int_idxOfFileList++){
-        if(rgx_fileNameToProcess.test(str_entriesRecurse[int_idxOfFileList])){ // 対象ファイルの場合
-            str_filterd.push(str_entriesRecurse[int_idxOfFileList]); // 処理対象リストに追加
+        var str_path = str_entriesRecurse[int_idxOfFileList];
+        if(rgx_fileNameToProcess.test(str_path)){ // 対象ファイルの場合
+            str_filterd.push(str_path); // 処理対象リストに追加
+        }
+
+        for(var idxOfImgExts = 0 ; idxOfImgExts < rgx_fileNameLocalImages.length ; idxOfImgExts++){ //todo 大文字、小文字を無視する
+            if(rgx_fileNameLocalImages[idxOfImgExts].test(str_path)){ // 画像ファイルの場合
+                str_imagePaths.push(str_path); // 画像リストに追加
+            }
         }
     }
 
@@ -145,6 +159,11 @@ var int_msTimeForTimeOut = 3000;
     var int_haveDone = 0;
 
     while (int_idxOfFilterd < str_filterd.length){
+
+        if (int_idxOfFilterd == 0){
+            // h1 level title
+            func_appendWriteLine(`# Referencing Report`);
+        }
         
         while(obj_ == null && int_idxOfFilterd < str_filterd.length){
 
@@ -159,15 +178,18 @@ var int_msTimeForTimeOut = 3000;
             obj_ = func_list(obj_tokens, {map:null, content:''}, 0);
 
             // h1 level title
-            func_appendWriteLine(`# ${str_filterd[int_idxOfFilterd]}`); //todo 相対パス
+            func_appendWriteLine(``);
+            func_appendWriteLine(`## ${str_filterd[int_idxOfFilterd]}`); //todo 相対パス
             
             // number of links
             if(obj_.length == 0){
+                func_appendWriteLine(``);
                 func_appendWriteLine(`No link found.`);
                 obj_ = null;
                 objarr_requests = [];
 
             }else{
+                func_appendWriteLine(``);
                 func_appendWriteLine(`${obj_.length} link(s) found.`);
 
                 objarr_response = new Array(obj_.length);
@@ -185,17 +207,17 @@ var int_msTimeForTimeOut = 3000;
 
                             if( 2 <= obj_result['lastStageNumber']){ // Request does lead to 'Got http response'
                                 if(obj_result['incomingMsg']['statusCode'] === 200){ // http response code represents `200 OK`
-                                    objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(obj_result['url'], true);
+                                    objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(obj_result['url'], true, true);
 
                                 }else{ // http response code **not** represents `200 OK`
-                                    objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(obj_result['url'], false);
+                                    objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(obj_result['url'], false, true);
                                 }
 
                             }else{ // Request doesn't lead to 'Got http response'
 
                                 var str_decoded = decodeURI(obj_result['url']); // decode percent encoding
                                 
-                                // 問い合わせ URL を相対パスとして検索
+                                // 問い合わせ URL を相対パスと解釈してローカルから検索
                                 var str_abs = obj_path.resolve(
                                     obj_path.dirname(str_filterd[int_idxOfFilterd]),
                                     str_decoded
@@ -205,15 +227,25 @@ var int_msTimeForTimeOut = 3000;
                                     var obj_statOfToSearch = obj_fileSystem.statSync(str_analysisResultFilePath);
 
                                     if(obj_statOfToSearch.isFile()){ // ファイルが存在する場合
-                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, true);
+                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, true, false);
+
+                                        //画像ファイルの場合は、 画像リストから削除
+                                        for(var idxOfImgExts = 0 ; idxOfImgExts < rgx_fileNameLocalImages.length ; idxOfImgExts++){
+                                            if(rgx_fileNameLocalImages[idxOfImgExts].test(str_abs)){ // 画像ファイルの場合
+                                                var int_refIdx = str_imagePaths.indexOf(str_abs);
+                                                if(int_refIdx !== (-1)){ // Unreferenced 画像ファイルリストに存在する場合
+                                                    str_imagePaths.splice(int_refIdx, 1); // Unreferenced 画像ファイルリストから削除
+                                                }
+                                            }
+                                        }
 
                                     }else{ // 対象はディレクトリの場合
-                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, false);
+                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, false, false);
                                     }
 
                                 }catch(err){
                                     if (error.code === 'ENOENT') { // no such file or directory
-                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, false);
+                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, false, false);
                             
                                     }else{ // unkown error
                                         console.error('[ERR] ' + error);
@@ -223,10 +255,11 @@ var int_msTimeForTimeOut = 3000;
 
                             }
 
-                            function func_makeFileExisteceObj(str_dir, bl_existece){
+                            function func_makeFileExisteceObj(str_dir, bl_existece, bl_isLink){
                                 return {
                                     path: str_dir,
-                                    effectiveness: bl_existece
+                                    effectiveness: bl_existece,
+                                    isLink: bl_isLink
                                 };
                             }
 
@@ -251,11 +284,12 @@ var int_msTimeForTimeOut = 3000;
             var obj_link = obj_[int_idxOfResponse];
 
             var str_response =
-` - \`${obj_link['attrs'][0][1]}\`
+`
+ - \`${obj_link['attrs'][0][1]}\`
 
-Effectiveness:${(objarr_effectiveness[int_idxOfResponse]['effectiveness'] ? 'OK' : 'NG')}  
+Effectiveness:${(objarr_effectiveness[int_idxOfResponse]['effectiveness'] ? 'OK' : 'NG')}${(objarr_effectiveness[int_idxOfResponse]['isLink'] ? (' (' + objarr_response[int_idxOfResponse]['incomingMsg']['statusCode'] + ' (' + objarr_response[int_idxOfResponse]['incomingMsg']['statusMessage'] + '))') : '')}  
 
-Near by line ${obj_link['mapLevelInfo']['map'][0]} - ${obj_link['mapLevelInfo']['map'][1]}
+map ${obj_link['mapLevelInfo']['map'][0]} - ${obj_link['mapLevelInfo']['map'][1]}
 \`\`\`
 ${obj_link['mapLevelInfo']['content']}
 \`\`\``;
@@ -268,6 +302,20 @@ ${obj_link['mapLevelInfo']['content']}
         objarr_response = [];
         int_reqId = 0;
         int_haveDone = 0;
+    }
+
+    func_appendWriteLine(``);
+    func_appendWriteLine(`# Unreferenced Images`);
+    func_appendWriteLine(``);
+    if( 0 === str_imagePaths.length){ // Unreferenced image が存在しない場合
+        func_appendWriteLine(`There is not unreferenced image`);
+    }else{ // Unreferenced image が存在する場合
+        func_appendWriteLine(`${str_imagePaths.length} image(s) is not unreferenced.`);
+        func_appendWriteLine(``);
+        for (var int_idxOfImages = 0 ; int_idxOfImages < str_imagePaths.length ; int_idxOfImages++){
+            func_appendWriteLine(` - ${str_imagePaths[int_idxOfImages]}`);
+        }
+
     }
 
 
