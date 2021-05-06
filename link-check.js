@@ -27,10 +27,10 @@ var int_msTimeForTimeOut = 10000;
     var str_defaultOutFileName = 'Referencing Report.md';
     var rgx_fileNameToProcess = /.+\.md/;
     var rgx_fileNameLocalImages = [
-        /.+\.png/,
-        /.+\.jpg/,
-        /.+\.jpeg/,
-        /.+\.svg/
+        /.+\.png/i,
+        /.+\.jpg/i,
+        /.+\.jpeg/i,
+        /.+\.svg/i
     ]
     var str_returnChar = '\n';
     var int_msTimeForWatch = 250;
