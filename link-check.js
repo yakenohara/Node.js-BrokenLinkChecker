@@ -310,7 +310,7 @@ ${obj_link['mapLevelInfo']['content']}
     if( 0 === str_imagePaths.length){ // Unreferenced image が存在しない場合
         func_appendWriteLine(`There is not unreferenced image`);
     }else{ // Unreferenced image が存在する場合
-        func_appendWriteLine(`${str_imagePaths.length} image(s) is not unreferenced.`);
+        func_appendWriteLine(`${str_imagePaths.length} image(s) is unreferenced.`);
         func_appendWriteLine(``);
         for (var int_idxOfImages = 0 ; int_idxOfImages < str_imagePaths.length ; int_idxOfImages++){
             func_appendWriteLine(` - ${str_imagePaths[int_idxOfImages]}`);
