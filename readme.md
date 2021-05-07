@@ -5,7 +5,7 @@
 # Usage
 
 ```
-link-check.js directory [outpath]
+node link-check.js directory [outpath]
 ```
 
 # todo
