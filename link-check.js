@@ -156,8 +156,11 @@ var int_msTimeForTimeOut = 10000;
     var objarr_requests = [];
     var objarr_response = [];
     var objarr_effectiveness = [];
+    var intarr_resolving429retrying = [];
     var int_haveDone = 0;
     var int_429retryingIdx = -1; // `429 too many requests`による retry 中の idx no
+    var int_retryCounter = 0;
+    var int_retrySum = 0;
 
     while (int_idxOfFilterd < str_filterd.length){
 
@@ -196,6 +199,7 @@ var int_msTimeForTimeOut = 10000;
                 objarr_response = new Array(obj_.length);
                 objarr_effectiveness = new Array(obj_.length);
                 objarr_requests = new Array(obj_.length);
+                intarr_resolving429retrying = [];
                 int_429retryingIdx = -1;
 
                 for(var int_idx = 0 ; int_idx < obj_.length ; int_idx++){
@@ -223,14 +227,15 @@ var int_msTimeForTimeOut = 10000;
                     if( 2 <= obj_result['lastStageNumber']){ // Request does lead to 'Got http response'
                         if(obj_result['incomingMsg']['statusCode'] === 200){ // http response code represents `200 OK`
                             objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(obj_result['url'], true, true);
-                            if(0 < obj_result['identifier']['retryTimes']){
-                                int_429retryingIdx = -1;
-                            }
-                            int_haveDone++;
+                            func_urlHaveDone();
 
                         }else if(obj_result['incomingMsg']['statusCode'] === 429){ // `429 too many requests`
                             
                             if(obj_identifer['retryTimes'] <= int_retryTimesFor429){
+
+                                if(-1 == intarr_resolving429retrying.indexOf(obj_result['identifier']['index'])){
+                                    intarr_resolving429retrying.push(obj_result['identifier']['index'])
+                                }
 
                                 await func_sleep(1000); // とりあえず 1s 待つ
 
@@ -241,6 +246,19 @@ var int_msTimeForTimeOut = 10000;
                                     await func_sleep(1000);
 
                                 }
+
+                                if (int_retryCounter == 0){
+                                    int_retrySum = intarr_resolving429retrying.length;
+                                }
+
+                                if(0 < int_retryCounter){
+                                    process.stdout.write('\033[1A'); // カーソルを1行上へ
+                                }
+
+                                var str_zeroPadding = '0'.repeat(String(int_retrySum).length - String(intarr_resolving429retrying.length).length);
+
+                                console.log(`Resolving too many requests (remaining ${str_zeroPadding}${intarr_resolving429retrying.length} of ${int_retrySum}) ${'.'.repeat(int_retryCounter%3+1)}${' '.repeat(3-int_retryCounter%3)}`)
+                                int_retryCounter++;
                                 int_429retryingIdx = obj_result['identifier']['index'];
                                 func_try({ // retry
                                     index:obj_result['identifier']['index'],
@@ -249,17 +267,22 @@ var int_msTimeForTimeOut = 10000;
 
                             }else{
                                 objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(obj_result['url'], false, true);
-                                if(0 < obj_result['identifier']['retryTimes']){
-                                    int_429retryingIdx = -1;
-                                }
-                                int_haveDone++;
+                                func_urlHaveDone();
                             }
                             
 
                         }else{ // http response code **not** represents either `200 OK` nor `429 too many requests`
                             objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(obj_result['url'], false, true);
+                            func_urlHaveDone();
+                        }
+
+                        function func_urlHaveDone(){
                             if(0 < obj_result['identifier']['retryTimes']){
                                 int_429retryingIdx = -1;
+                            }
+                            var int_ttt = intarr_resolving429retrying.indexOf(obj_result['identifier']['index']);
+                            if(-1 < int_ttt){
+                                intarr_resolving429retrying.splice(int_ttt, 1);
                             }
                             int_haveDone++;
                         }
@@ -346,6 +369,8 @@ ${obj_link['mapLevelInfo']['content']}
         objarr_requests = [];
         objarr_response = [];
         int_haveDone = 0;
+        int_retryCounter = 0;
+        int_retrySum = 0;
     }
 
     func_appendWriteLine(``);
