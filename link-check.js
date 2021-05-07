@@ -25,7 +25,7 @@ var int_msTimeForTimeOut = 10000;
     // <settings>-----------------------------------------------------------------------
 
     var str_defaultOutFileName = 'Referencing Report.md';
-    var rgx_fileNameToProcess = /.+\.md/;
+    var rgx_fileNameToProcess = /.+\.md/i;
     var rgx_fileNameLocalImages = [
         /.+\.png/i,
         /.+\.jpg/i,
@@ -34,6 +34,7 @@ var int_msTimeForTimeOut = 10000;
     ]
     var str_returnChar = '\n';
     var int_msTimeForWatch = 250;
+    var int_retryTimesFor429 = 64;
     
 
     // ----------------------------------------------------------------------</settings>
@@ -132,7 +133,7 @@ var int_msTimeForTimeOut = 10000;
 
     console.log('[LOG] ' + 'Analyzing...');
 
-    var str_entriesRecurse = func_readdirSyncRecurse(str_dotFileDirAbs); // ディレクトリ配下のパスリストを再帰的に取得
+    var str_entriesRecurse = func_readdirSyncRecurseFile(str_dotFileDirAbs); // ディレクトリ配下のファイルパスリストを再帰的に取得
     var str_filterd = []; // 処理対象リスト
     var str_imagePaths = []; // 画像 Path リスト
     // 処理対象ファイル数の把握
@@ -155,8 +156,8 @@ var int_msTimeForTimeOut = 10000;
     var objarr_requests = [];
     var objarr_response = [];
     var objarr_effectiveness = [];
-    var int_reqId = 0;
     var int_haveDone = 0;
+    var int_429retryingIdx = -1; // `429 too many requests`による retry 中の idx no
 
     while (int_idxOfFilterd < str_filterd.length){
 
@@ -194,84 +195,128 @@ var int_msTimeForTimeOut = 10000;
 
                 objarr_response = new Array(obj_.length);
                 objarr_effectiveness = new Array(obj_.length);
+                objarr_requests = new Array(obj_.length);
+                int_429retryingIdx = -1;
 
                 for(var int_idx = 0 ; int_idx < obj_.length ; int_idx++){
-
-                    objarr_requests.push(new httpsGet(
-                        obj_[int_idx]['attrs'][0][1], // URL
-                        '', // requested response only.
-                        int_reqId++, // request ID
-                        function(obj_result){ // Got request result
-
-                            objarr_response[obj_result['identifier']] = obj_result;
-
-                            if( 2 <= obj_result['lastStageNumber']){ // Request does lead to 'Got http response'
-                                if(obj_result['incomingMsg']['statusCode'] === 200){ // http response code represents `200 OK`
-                                    objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(obj_result['url'], true, true);
-
-                                }else{ // http response code **not** represents `200 OK`
-                                    objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(obj_result['url'], false, true);
-                                }
-
-                            }else{ // Request doesn't lead to 'Got http response'
-
-                                var str_decoded = decodeURI(obj_result['url']); // decode percent encoding
-                                
-                                // 問い合わせ URL を相対パスと解釈してローカルから検索
-                                var str_abs = obj_path.resolve(
-                                    obj_path.dirname(str_filterd[int_idxOfFilterd]),
-                                    str_decoded
-                                );
-
-                                try{
-                                    var obj_statOfToSearch = obj_fileSystem.statSync(str_analysisResultFilePath);
-
-                                    if(obj_statOfToSearch.isFile()){ // ファイルが存在する場合
-                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, true, false);
-
-                                        //画像ファイルの場合は、 画像リストから削除
-                                        for(var idxOfImgExts = 0 ; idxOfImgExts < rgx_fileNameLocalImages.length ; idxOfImgExts++){
-                                            if(rgx_fileNameLocalImages[idxOfImgExts].test(str_abs)){ // 画像ファイルの場合
-                                                var int_refIdx = str_imagePaths.indexOf(str_abs);
-                                                if(int_refIdx !== (-1)){ // Unreferenced 画像ファイルリストに存在する場合
-                                                    str_imagePaths.splice(int_refIdx, 1); // Unreferenced 画像ファイルリストから削除
-                                                }
-                                            }
-                                        }
-
-                                    }else{ // 対象はディレクトリの場合
-                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, false, false);
-                                    }
-
-                                }catch(err){
-                                    if (error.code === 'ENOENT') { // no such file or directory
-                                        objarr_effectiveness[obj_result['identifier']] = func_makeFileExisteceObj(str_abs, false, false);
-                            
-                                    }else{ // unkown error
-                                        console.error('[ERR] ' + error);
-                                        return;
-                                    }
-                                }
-
-                            }
-
-                            function func_makeFileExisteceObj(str_dir, bl_existece, bl_isLink){
-                                return {
-                                    path: str_dir,
-                                    effectiveness: bl_existece,
-                                    isLink: bl_isLink
-                                };
-                            }
-
-                            int_haveDone++;
-                            
-                        }
-                    ));
+                    func_try({
+                        index:int_idx,
+                        retryTimes:0
+                    });
                 }
             }
 
             int_idxOfFilterd++;
 
+        }
+
+
+        function func_try(obj_identifer){
+            objarr_requests[obj_identifer['index']] = (new httpsGet(
+                obj_[obj_identifer['index']]['attrs'][0][1], // URL
+                '', // requested response only.
+                obj_identifer, // request ID
+                async function(obj_result){ // Got request result
+
+                    objarr_response[obj_result['identifier']['index']] = obj_result;
+
+                    if( 2 <= obj_result['lastStageNumber']){ // Request does lead to 'Got http response'
+                        if(obj_result['incomingMsg']['statusCode'] === 200){ // http response code represents `200 OK`
+                            objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(obj_result['url'], true, true);
+                            if(0 < obj_result['identifier']['retryTimes']){
+                                int_429retryingIdx = -1;
+                            }
+                            int_haveDone++;
+
+                        }else if(obj_result['incomingMsg']['statusCode'] === 429){ // `429 too many requests`
+                            
+                            if(obj_identifer['retryTimes'] <= int_retryTimesFor429){
+
+                                await func_sleep(1000); // とりあえず 1s 待つ
+
+                                while (  // `429 too many requests` による retry がなされている間
+                                    (-1 < int_429retryingIdx) &&
+                                    (int_429retryingIdx != obj_result['identifier']['index'])
+                                ){
+                                    await func_sleep(1000);
+
+                                }
+                                int_429retryingIdx = obj_result['identifier']['index'];
+                                func_try({ // retry
+                                    index:obj_result['identifier']['index'],
+                                    retryTimes:(obj_result['identifier']['retryTimes'] + 1)
+                                });
+
+                            }else{
+                                objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(obj_result['url'], false, true);
+                                if(0 < obj_result['identifier']['retryTimes']){
+                                    int_429retryingIdx = -1;
+                                }
+                                int_haveDone++;
+                            }
+                            
+
+                        }else{ // http response code **not** represents either `200 OK` nor `429 too many requests`
+                            objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(obj_result['url'], false, true);
+                            if(0 < obj_result['identifier']['retryTimes']){
+                                int_429retryingIdx = -1;
+                            }
+                            int_haveDone++;
+                        }
+
+                    }else{ // Request doesn't lead to 'Got http response'
+
+                        var str_decoded = decodeURI(obj_result['url']); // decode percent encoding
+                        
+                        // 問い合わせ URL を相対パスと解釈してローカルから検索
+                        var str_abs = obj_path.resolve(
+                            obj_path.dirname(str_filterd[int_idxOfFilterd]),
+                            str_decoded
+                        );
+
+                        try{
+                            var obj_statOfToSearch = obj_fileSystem.statSync(str_analysisResultFilePath);
+
+                            if(obj_statOfToSearch.isFile()){ // ファイルが存在する場合
+                                objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(str_abs, true, false);
+
+                                //画像ファイルの場合は、 画像リストから削除
+                                for(var idxOfImgExts = 0 ; idxOfImgExts < rgx_fileNameLocalImages.length ; idxOfImgExts++){
+                                    if(rgx_fileNameLocalImages[idxOfImgExts].test(str_abs)){ // 画像ファイルの場合
+                                        var int_refIdx = str_imagePaths.indexOf(str_abs);
+                                        if(int_refIdx !== (-1)){ // Unreferenced 画像ファイルリストに存在する場合
+                                            str_imagePaths.splice(int_refIdx, 1); // Unreferenced 画像ファイルリストから削除
+                                        }
+                                    }
+                                }
+
+                            }else{ // 対象はディレクトリの場合
+                                objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(str_abs, false, false);
+                            }
+
+                        }catch(err){
+                            if (error.code === 'ENOENT') { // no such file or directory
+                                objarr_effectiveness[obj_result['identifier']['index']] = func_makeFileExisteceObj(str_abs, false, false);
+                    
+                            }else{ // unkown error
+                                console.error('[ERR] ' + error);
+                                return;
+                            }
+                        }
+
+                        int_haveDone++;
+
+                    }
+
+                    function func_makeFileExisteceObj(str_dir, bl_existece, bl_isLink){
+                        return {
+                            path: str_dir,
+                            effectiveness: bl_existece,
+                            isLink: bl_isLink
+                        };
+                    }
+                }
+            ));
         }
         
         while(int_haveDone < objarr_requests.length){ // すべての要求に対する response が帰っていない場合
@@ -300,7 +345,6 @@ ${obj_link['mapLevelInfo']['content']}
         obj_ = null;
         objarr_requests = [];
         objarr_response = [];
-        int_reqId = 0;
         int_haveDone = 0;
     }
 
@@ -325,9 +369,10 @@ ${obj_link['mapLevelInfo']['content']}
         obj_fileSystem.appendFileSync(str_analysisResultFilePath, `${str_toWrite}${str_returnChar}`);
     }
     
+    // <指定ディレクトリ配下のファイル / ディレクトリーリストを作る>-------------------------------------------------------------
     
     //
-    // 指定ディレクトリ配下のファイル / ディレクトリリストを作る
+    // 指定ディレクトリ配下のファイル / ディレクトリーリストを作る
     //
     function func_readdirSyncRecurse(str_dirName){
         
@@ -343,11 +388,63 @@ ${obj_link['mapLevelInfo']['content']}
                 str_entriesRecurse = str_childPaths.concat(str_entriesRecurse);
             }
 
-            str_entriesRecurse.push(str_pathOfInterest);
+            str_entriesRecurse.push(str_pathOfInterest); // エントリーリストに追加
         }
 
         return str_entriesRecurse;
     }
+
+    //
+    // 指定ディレクトリ配下のファイルリストを作る
+    //
+    function func_readdirSyncRecurseFile(str_dirName){
+        
+        var str_entriesRecurse = [];
+        var str_entries = obj_fileSystem.readdirSync(str_dirName); // ディレクトリ直下のファイル / ディレクトリリストの取得
+
+        for(var str_idxOfEntries = 0 ; str_idxOfEntries < str_entries.length ; str_idxOfEntries++){
+            var str_pathOfInterest = obj_path.resolve(str_dirName, str_entries[str_idxOfEntries]); // フルパスの取得
+            
+            // ディレクトリを再帰的に走査
+            if(obj_fileSystem.statSync(str_pathOfInterest).isDirectory()){ // ディレクトリの場合
+                var str_childPaths = func_readdirSyncRecurseFile(str_pathOfInterest);
+                str_entriesRecurse = str_childPaths.concat(str_entriesRecurse);
+            }
+
+            if(obj_fileSystem.statSync(str_pathOfInterest).isFile()){ // ファイルの場合
+                str_entriesRecurse.push(str_pathOfInterest); // エントリーリストに追加
+            }
+        }
+
+        return str_entriesRecurse;
+    }
+
+    //
+    // 指定ディレクトリ配下のディレクトリーリストを作る
+    //
+    function func_readdirSyncRecurseDirectory(str_dirName){
+        
+        var str_entriesRecurse = [];
+        var str_entries = obj_fileSystem.readdirSync(str_dirName); // ディレクトリ直下のファイル / ディレクトリリストの取得
+
+        for(var str_idxOfEntries = 0 ; str_idxOfEntries < str_entries.length ; str_idxOfEntries++){
+            var str_pathOfInterest = obj_path.resolve(str_dirName, str_entries[str_idxOfEntries]); // フルパスの取得
+            
+            // ディレクトリを再帰的に走査
+            if(obj_fileSystem.statSync(str_pathOfInterest).isDirectory()){ // ディレクトリの場合
+                var str_childPaths = func_readdirSyncRecurseDirectory(str_pathOfInterest);
+                str_entriesRecurse = str_childPaths.concat(str_entriesRecurse);
+            }
+
+            if(obj_fileSystem.statSync(str_pathOfInterest).isDirectory()){ // ディレクトリーの場合
+                str_entriesRecurse.push(str_pathOfInterest); // エントリーリストに追加
+            }
+        }
+
+        return str_entriesRecurse;
+    }
+
+    // ------------------------------------------------------------</指定ディレクトリ配下のファイル / ディレクトリーリストを作る>
 
     function func_list(obj_tokens, obj_mapLvelInfo, level){ //todo level の削除
         var ret = [];
