@@ -16,7 +16,6 @@ var https = require('https');
 var http = require('http');
 
 // <Tunings>----------------------
-// var int_msTimeForTimeOut = 10000; //todo <- original
 var int_msTimeForTimeOut = 10000;
 // ---------------------</Tunings>
 
@@ -143,7 +142,7 @@ var int_msTimeForTimeOut = 10000;
             str_filterd.push(str_path); // 処理対象リストに追加
         }
 
-        for(var idxOfImgExts = 0 ; idxOfImgExts < rgx_fileNameLocalImages.length ; idxOfImgExts++){ //todo 大文字、小文字を無視する
+        for(var idxOfImgExts = 0 ; idxOfImgExts < rgx_fileNameLocalImages.length ; idxOfImgExts++){
             if(rgx_fileNameLocalImages[idxOfImgExts].test(str_path)){ // 画像ファイルの場合
                 str_imagePaths.push(str_path); // 画像リストに追加
             }
@@ -179,7 +178,7 @@ var int_msTimeForTimeOut = 10000;
             // parse
             obj_tokens = obj_mkdnIt.parse(str_mdContent, {}); // https://markdown-it.github.io/markdown-it/#MarkdownIt.parse
 
-            obj_ = func_list(obj_tokens, {map:null, content:''}, 0);
+            obj_ = func_list(obj_tokens, {map:null, content:''});
 
             // h1 level title
             func_appendWriteLine(``);
@@ -471,7 +470,7 @@ ${obj_link['mapLevelInfo']['content']}
 
     // ------------------------------------------------------------</指定ディレクトリ配下のファイル / ディレクトリーリストを作る>
 
-    function func_list(obj_tokens, obj_mapLvelInfo, level){ //todo level の削除
+    function func_list(obj_tokens, obj_mapLvelInfo){
         var ret = [];
         if (obj_tokens == null){
             return ret;
@@ -511,8 +510,7 @@ ${obj_link['mapLevelInfo']['content']}
                     {
                         map:obj_mapLvelInfo['map'],
                         content:obj_mapLvelInfo['content']
-                    },
-                    level + 1
+                    }
                 );
                 ret = ret.concat(obj_children);
             }
@@ -552,12 +550,15 @@ function func_sleep(int_mSec) {
 //      URL to download
 //  fileName : String
 //      Filepath to save file. If empty string specified, this function returns requested response only.
-//todo id
+//  identifer : any
+//      resultListener will be invoked with specified this argument
 //  resultListener : function
-//      Callback function that will be fired with 1 argument(see following) when process is ended.  
-//      Note. This will be fired whether process ends in scceeded or not.
+//      Callback function that will be invoked with 1 argument(see following) when process is ended.  
+//      Note. This will be invoked whether process ends in scceeded or not.
 //          1st Argment : Object
 //              Each property means following
+//                  identifer : any
+//                      equeals to argument `identifer` when invoked this function
 //                  isOK : boolean
 //                      true if all process ends in scceeded, otherwise false
 //                  message : String
@@ -592,7 +593,7 @@ function func_sleep(int_mSec) {
 //                      Note. This property will be added only if downloading process is started
 //                      How many bytes downloaded when process ended
 //  stageListener : function
-//      Callback function that will be fired with 2 argument(see following) when process stage is moved.  
+//      Callback function that will be invoked with 2 argument(see following) when process stage is moved.  
 //          1st Argument : Number
 //              Which process number reached in the download processes that is divided into the following 4 processes
 //                  1: 'Wait for http response'
@@ -602,7 +603,7 @@ function func_sleep(int_mSec) {
 //          2nd Argument : Number
 //              Meaning of 1st argument above
 //  dlProgressListener : function
-//      Callback function that will be fired with 2 argument(see following) when every 'data' event of download stream.
+//      Callback function that will be invoked with 2 argument(see following) when every 'data' event of download stream.
 //          1st Argument : Number
 //              Total amount byte size of downloaded completely
 //          2nd Argument : Number
